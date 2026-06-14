@@ -168,9 +168,3 @@ The following sensors are created but **disabled by default**. Enable them in th
 - Battery current and power show positive values when discharging, negative when charging from AC
 - AC Timeout and Auto Shutdown are in minutes; the device app displays them in hours
 - Scheduled charging is cloud-only (via AWS) and cannot be implemented locally
-
----
-
-## License
-
-MIT
