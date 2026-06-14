@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "bluetooth_confirm": {
+        "title": "Gendome BLE",
+        "description": "Set up {name}?"
+      },
+      "user": {
+        "title": "Gendome BLE",
+        "data": {
+          "address": "Device"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured.",
+      "no_devices_found": "No Gendome devices found in range. Make sure the power station is powered on."
+    }
+  }
+}

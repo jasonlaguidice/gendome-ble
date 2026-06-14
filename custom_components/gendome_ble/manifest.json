@@ -1,0 +1,19 @@
+{
+    "domain": "gendome_ble",
+    "name": "Gendome BLE",
+    "bluetooth": [
+        {
+            "local_name": "Gendome_*",
+            "connectable": true
+        }
+    ],
+    "codeowners": ["@jasonlaguidice"],
+    "config_flow": true,
+    "dependencies": ["bluetooth"],
+    "documentation": "https://github.com/jasonlaguidice/ha-gendome-ble",
+    "integration_type": "device",
+    "iot_class": "local_push",
+    "issue_tracker": "https://github.com/jasonlaguidice/ha-gendome-ble/issues",
+    "requirements": ["pycryptodome>=3.20"],
+    "version": "0.1.0"
+}
