@@ -19,7 +19,8 @@ PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.S
 
 type GendomeConfigEntry = ConfigEntry[GendomeDevice]
 
-_REAPPEAR_KEY = f"{DOMAIN}_reappear_callbacks"
+_REAPPEAR_KEY  = f"{DOMAIN}_reappear_callbacks"
+_RECONNECT_KEY = f"{DOMAIN}_reconnect_callbacks"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: GendomeConfigEntry) -> bool:
@@ -50,9 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: GendomeConfigEntry) -> b
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     def _on_disconnect(_exc):
-        async def _reload():
-            await hass.config_entries.async_reload(entry.entry_id)
-        hass.async_create_task(_reload())
+        _LOGGER.debug("Disconnected from %s, waiting for reappearance to reconnect", address)
+        _register_reconnect_callback(hass, entry, address)
 
     entry.async_on_unload(device.on_disconnect(_on_disconnect))
 
@@ -61,10 +61,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: GendomeConfigEntry) -> b
 
 async def async_unload_entry(hass: HomeAssistant, entry: GendomeConfigEntry) -> bool:
     _cancel_reappear_callback(hass, entry)
+    _cancel_reconnect_callback(hass, entry)
     device: GendomeDevice = entry.runtime_data
     await device.disconnect()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
+
+# ── Initial discovery: reload if device appears while setup was skipped ────────
 
 def _register_reappear_callback(hass: HomeAssistant, entry: ConfigEntry, address: str) -> None:
     callbacks: dict = hass.data.setdefault(_REAPPEAR_KEY, {})
@@ -86,5 +89,42 @@ def _register_reappear_callback(hass: HomeAssistant, entry: ConfigEntry, address
 
 def _cancel_reappear_callback(hass: HomeAssistant, entry: ConfigEntry) -> None:
     callbacks: dict = hass.data.get(_REAPPEAR_KEY, {})
+    if cancel := callbacks.pop(entry.entry_id, None):
+        cancel()
+
+
+# ── Reconnect after disconnect: update BLE device ref and reconnect ────────────
+
+def _register_reconnect_callback(hass: HomeAssistant, entry: GendomeConfigEntry, address: str) -> None:
+    callbacks: dict = hass.data.setdefault(_RECONNECT_KEY, {})
+    if entry.entry_id in callbacks:
+        return
+
+    def _on_reappear(service_info: BluetoothServiceInfoBleak, change: BluetoothChange) -> None:
+        _cancel_reconnect_callback(hass, entry)
+        device: GendomeDevice = entry.runtime_data
+
+        async def _reconnect() -> None:
+            device.update_ble_device(service_info.device)
+            try:
+                await device.connect()
+                _LOGGER.info("Reconnected to %s", address)
+            except Exception:
+                _LOGGER.exception("Reconnect failed for %s, will retry on next advertisement", address)
+                _register_reconnect_callback(hass, entry, address)
+
+        hass.async_create_task(_reconnect())
+
+    cancel = bluetooth.async_register_callback(
+        hass,
+        _on_reappear,
+        BluetoothCallbackMatcher(address=address, connectable=True),
+        BluetoothScanningMode.PASSIVE,
+    )
+    callbacks[entry.entry_id] = cancel
+
+
+def _cancel_reconnect_callback(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    callbacks: dict = hass.data.get(_RECONNECT_KEY, {})
     if cancel := callbacks.pop(entry.entry_id, None):
         cancel()
