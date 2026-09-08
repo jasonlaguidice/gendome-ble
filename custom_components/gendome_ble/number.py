@@ -21,12 +21,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import GendomeConfigEntry
 from .entity import GendomeEntity
 from .gendome import GendomeDevice
+from .gendome.device import CHARGE_POWER_RANGES
 
 
 @dataclass(frozen=True, kw_only=True)
 class GendomeNumberDescription(NumberEntityDescription):
     prop: str = ""
     set_fn: Callable[[GendomeDevice, float], Awaitable[None]] = lambda d, v: None
+    min_max_fn: Callable[[GendomeDevice], tuple[float, float]] | None = None
 
 
 NUMBERS: tuple[GendomeNumberDescription, ...] = (
@@ -41,6 +43,10 @@ NUMBERS: tuple[GendomeNumberDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.WATT,
         mode=NumberMode.SLIDER,
         set_fn=lambda d, v: d.async_set_ac_charge_power(v),
+        # Valid range depends on which AC charge-power tier the device is configured
+        # for (see charge_status / CHARGE_POWER_RANGES) — 500-1800W is just the
+        # tier-2 fallback used before the device's tier is known.
+        min_max_fn=lambda d: CHARGE_POWER_RANGES.get(d.charge_status, (500, 1800)),
     ),
     GendomeNumberDescription(
         key="bms_protect_min",
@@ -166,6 +172,18 @@ class GendomeNumber(GendomeEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         return getattr(self._device, self._prop, None)
+
+    @property
+    def native_min_value(self) -> float:
+        if self.entity_description.min_max_fn is not None:
+            return self.entity_description.min_max_fn(self._device)[0]
+        return self.entity_description.native_min_value
+
+    @property
+    def native_max_value(self) -> float:
+        if self.entity_description.min_max_fn is not None:
+            return self.entity_description.min_max_fn(self._device)[1]
+        return self.entity_description.native_max_value
 
     async def async_set_native_value(self, value: float) -> None:
         await self._set_fn(self._device, value)

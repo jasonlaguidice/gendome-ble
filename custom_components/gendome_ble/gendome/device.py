@@ -131,18 +131,22 @@ LIGHT_COLOR_MODES: dict[str, int] = {
 }
 LIGHT_COLOR_INDEX: dict[int, str] = {v: k for k, v in LIGHT_COLOR_MODES.items()}
 
-# AC "fast charge" power-tier index (key 24, exposed as charge_status). This is NOT a
-# charging/idle/full state — it's which preset AC input power range the device's
-# charger is configured for. Decoded from the official app's ChargeConfigs table
-# (GDOVFastChargePopupView in the RN bundle): tier 0 is a fixed 500W slow-charge mode,
-# tiers 1-4 are adjustable ranges topping out at the wattage shown.
-CHARGE_STATUS_LABELS: dict[int, str] = {
-    0: "Slow (500W)",
-    1: "Fast (1500W)",
-    2: "Fast (1800W)",
-    3: "Fast (3000W)",
-    4: "Fast (2200W)",
+# AC "fast charge" power-tier table (key 24, exposed as charge_status, selects the
+# active tier). This is NOT a charging/idle/full state — it's which preset AC input
+# power range the device's charger is configured for. Decoded from the official app's
+# ChargeConfigs table (GDOVFastChargePopupView in the RN bundle): tier 0 is a fixed
+# 500W slow-charge mode, tiers 1-4 are adjustable ranges topping out at the wattage
+# shown. (label, min watts, max watts) — the min/max is the AC Charge Power number
+# entity's valid range for that tier.
+CHARGE_TIERS: dict[int, tuple[str, int, int]] = {
+    0: ("Slow (500W)", 500, 500),
+    1: ("Fast (1500W)", 500, 1500),
+    2: ("Fast (1800W)", 500, 1800),
+    3: ("Fast (3000W)", 500, 3000),
+    4: ("Fast (2200W)", 500, 2200),
 }
+CHARGE_STATUS_LABELS: dict[int, str] = {k: v[0] for k, v in CHARGE_TIERS.items()}
+CHARGE_POWER_RANGES: dict[int, tuple[int, int]] = {k: (v[1], v[2]) for k, v in CHARGE_TIERS.items()}
 
 _FAULT_PROPS: dict[int, str] = {
     168: "fault_main_board",
