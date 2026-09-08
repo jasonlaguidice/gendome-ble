@@ -20,11 +20,11 @@ WRITE_UUID  = "0000ee03-0000-1000-8000-00805f9b34fb"
 _KEY_MAP: dict[int, tuple[float | None, str]] = {
     # Controls (read-back from device settings)
     1:   (0.1,   "ac_charge_power"),
-    3:   (None,  "ac_standby_time"),
+    3:   (1 / 60, "ac_standby_time"),      # raw is seconds on the wire; app divides by 60 for its minutes UI
     6:   (None,  "bms_protect_min"),
     7:   (None,  "buzzer"),
     8:   (None,  "screen_brightness"),
-    9:   (None,  "device_standby_time"),
+    9:   (1 / 60, "device_standby_time"),  # raw is seconds on the wire; app divides by 60 for its minutes UI
     10:  (None,  "screen_sleep_time"),
     13:  (None,  "low_battery_alert"),
     14:  (None,  "low_battery_prewarn"),
@@ -100,7 +100,7 @@ _KEY_MAP: dict[int, tuple[float | None, str]] = {
     179: (None,  "mppt_charge_mode"),
     181: (None,  "top_light"),
     182: (None,  "bottom_light"),
-    183: (None,  "device_status"),
+    183: (None,  "device_status"),  # "device power supply status" (key_device_power_status) — raw only, meaning unconfirmed
     # Device hardware spec constants
     236: (None,  "spec_capacity"),
     239: (None,  "spec_cycle_count_1"),
@@ -130,6 +130,19 @@ LIGHT_COLOR_MODES: dict[str, int] = {
     "Purple": 7,
 }
 LIGHT_COLOR_INDEX: dict[int, str] = {v: k for k, v in LIGHT_COLOR_MODES.items()}
+
+# AC "fast charge" power-tier index (key 24, exposed as charge_status). This is NOT a
+# charging/idle/full state — it's which preset AC input power range the device's
+# charger is configured for. Decoded from the official app's ChargeConfigs table
+# (GDOVFastChargePopupView in the RN bundle): tier 0 is a fixed 500W slow-charge mode,
+# tiers 1-4 are adjustable ranges topping out at the wattage shown.
+CHARGE_STATUS_LABELS: dict[int, str] = {
+    0: "Slow (500W)",
+    1: "Fast (1500W)",
+    2: "Fast (1800W)",
+    3: "Fast (3000W)",
+    4: "Fast (2200W)",
+}
 
 _FAULT_PROPS: dict[int, str] = {
     168: "fault_main_board",
@@ -344,10 +357,10 @@ class GendomeDevice:
         await self._send_command([(10, int(minutes))])
 
     async def async_set_ac_timeout(self, minutes: float) -> None:
-        await self._send_command([(3, int(minutes))])
+        await self._send_command([(3, int(minutes * 60))])
 
-    async def async_set_auto_shutdown(self, value: float) -> None:
-        await self._send_command([(9, int(value))])
+    async def async_set_auto_shutdown(self, minutes: float) -> None:
+        await self._send_command([(9, int(minutes * 60))])
 
     async def async_set_low_battery_alert(self, pct: float) -> None:
         await self._send_command([(13, int(pct))])

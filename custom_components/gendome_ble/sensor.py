@@ -1,7 +1,9 @@
 """Sensor entities for Gendome BLE."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -25,11 +27,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import GendomeConfigEntry
 from .entity import GendomeEntity
 from .gendome import GendomeDevice
+from .gendome.device import CHARGE_STATUS_LABELS
 
 
 @dataclass(frozen=True, kw_only=True)
 class GendomeSensorDescription(SensorEntityDescription):
     prop: str = ""
+    value_fn: Callable[[Any], Any] | None = None
 
 
 def _power(key: str, prop: str, name: str, *, disabled: bool = False) -> GendomeSensorDescription:
@@ -178,11 +182,13 @@ SENSORS: tuple[GendomeSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
-    # ── Charge status (semantics TBD — observe across states) ─────────────────
+    # ── Charge status: AC fast-charge power tier, not a charging/idle state ────
     GendomeSensorDescription(
         key="charge_status", prop="charge_status", name="Charge Status",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.ENUM,
+        options=list(CHARGE_STATUS_LABELS.values()),
         entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda v: CHARGE_STATUS_LABELS.get(int(v)),
     ),
     # ── Device hardware spec constants ────────────────────────────────────────
     GendomeSensorDescription(
@@ -268,6 +274,14 @@ SENSORS: tuple[GendomeSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
+    # Key 183 ("device power supply status" per app debug labels) is decoded but its
+    # value meaning is unconfirmed — exposed raw for observation, disabled by default.
+    GendomeSensorDescription(
+        key="device_power_status_raw", prop="device_status",
+        name="Device Power Status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
 )
 
 # BMS host cell voltages (raw mV)
@@ -324,4 +338,7 @@ class GendomeSensor(GendomeEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return getattr(self._device, self._prop, None)
+        value = getattr(self._device, self._prop, None)
+        if value is not None and self.entity_description.value_fn is not None:
+            return self.entity_description.value_fn(value)
+        return value
