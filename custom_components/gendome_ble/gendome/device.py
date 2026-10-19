@@ -148,6 +148,9 @@ CHARGE_TIERS: dict[int, tuple[str, int, int]] = {
 CHARGE_STATUS_LABELS: dict[int, str] = {k: v[0] for k, v in CHARGE_TIERS.items()}
 CHARGE_POWER_RANGES: dict[int, tuple[int, int]] = {k: (v[1], v[2]) for k, v in CHARGE_TIERS.items()}
 
+# Percentage props; values outside 0-100 are discarded
+_PERCENT_PROPS = {"soc", "pack_a_soc", "pack_b_soc"}
+
 _FAULT_PROPS: dict[int, str] = {
     168: "fault_main_board",
     170: "fault_battery",
@@ -286,6 +289,9 @@ class GendomeDevice:
                     continue
                 scale, prop = _KEY_MAP[raw_key]
                 value = round(raw_val * scale, 2) if scale is not None else raw_val
+                if prop in _PERCENT_PROPS and not 0 <= value <= 100:
+                    _LOGGER.debug("Ignoring out-of-range %s=%s (raw key %s)", prop, value, raw_key)
+                    continue
                 if self._state.get(prop) != value:
                     self._state[prop] = value
                     for cb in list(self._callbacks.get(prop, [])):

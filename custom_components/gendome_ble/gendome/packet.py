@@ -1,8 +1,11 @@
 """BLE packet reassembly, payload parsing, and command encoding."""
 from __future__ import annotations
 
+import logging
 import struct
 from .crypto import decrypt, encrypt
+
+_LOGGER = logging.getLogger(__name__)
 
 # Keys whose values are 16-bit bitmasks expanded to {key_N: bool} sub-fields
 _MULTI_SPEC = {168, 170, 171, 172, 174, 176}
@@ -64,6 +67,7 @@ class PacketReassembler:
     def __init__(self) -> None:
         self._chunks: list[bytes] = []
         self._expected_len: int | None = None
+        self._expected_crc: int | None = None
 
     def feed(self, data: bytes) -> dict | None:
         if len(data) < 3:
@@ -73,6 +77,7 @@ class PacketReassembler:
             self._chunks = []
             if len(data) < 7:
                 return None
+            self._expected_crc = struct.unpack(">H", data[3:5])[0]
             self._expected_len = struct.unpack(">H", data[5:7])[0]
             self._chunks.append(data[7:])
             # Single-packet message (first packet shorter than max 20B)
@@ -92,12 +97,25 @@ class PacketReassembler:
             return None
         encrypted = b"".join(self._chunks)
         expected_len = self._expected_len
+        expected_crc = self._expected_crc
         self._chunks = []
         self._expected_len = None
+        self._expected_crc = None
         try:
             plaintext = decrypt(encrypted)[:expected_len]
+        except Exception:
+            _LOGGER.debug("Dropped frame: decrypt failed (%d bytes)", len(encrypted))
+            return None
+        if _crc16(plaintext) != expected_crc:
+            _LOGGER.debug(
+                "Dropped frame: CRC mismatch (expected %04X, got %04X) plaintext=%r",
+                expected_crc, _crc16(plaintext), plaintext,
+            )
+            return None
+        try:
             return parse_payload(plaintext.hex().upper())
         except Exception:
+            _LOGGER.debug("Dropped frame: parse failed plaintext=%r", plaintext)
             return None
 
 
