@@ -68,9 +68,15 @@ class PacketReassembler:
         self._chunks: list[bytes] = []
         self._expected_len: int | None = None
         self._expected_crc: int | None = None
+        self._last_raw: bytes | None = None
 
     def feed(self, data: bytes) -> dict | None:
         _LOGGER.debug("RX raw %s", data.hex())
+        if data == self._last_raw:
+            # Same notification delivered again (e.g. duplicate subscription)
+            _LOGGER.debug("Ignoring duplicate notification")
+            return None
+        self._last_raw = data
         if len(data) < 3:
             return None
         seq = data[2]

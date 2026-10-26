@@ -33,3 +33,19 @@ def test_corrupted_frame_dropped():
         if r.feed(d):
             dropped -= 100
     assert dropped == 0
+
+
+def test_duplicate_notifications_are_ignored():
+    from gendome.packet import encode_command
+
+    specs = [(1, 500), (2, 1), (3, 60), (4, 7), (5, 9), (6, 11), (7, 13), (8, 15)]
+    packets = encode_command(specs)
+    assert len(packets) > 1
+
+    single = PacketReassembler()
+    expected = [r for r in (single.feed(p) for p in packets) if r]
+
+    tripled = PacketReassembler()
+    got = [r for p in packets for r in (tripled.feed(p) for _ in range(3)) if r]
+
+    assert expected and got == expected

@@ -175,6 +175,8 @@ class GendomeDevice:
         self._callbacks: dict[str, list[Callable]] = {}
         self._disconnect_callbacks: list[Callable] = []
         self._reassembler = PacketReassembler()
+        self._connect_lock = asyncio.Lock()
+        self._closing = False
 
     # ── Connection ────────────────────────────────────────────────────────────
 
@@ -182,26 +184,39 @@ class GendomeDevice:
         self._ble_device = ble_device
 
     async def connect(self) -> None:
-        _LOGGER.debug("Connecting to %s (%s)", self.name, self.address)
-        self._client = await establish_connection(
-            BleakClientWithServiceCache,
-            self._ble_device,
-            self.name,
-            disconnected_callback=self._on_disconnected,
-        )
-        self._is_connected = True
-        await self._client.start_notify(NOTIFY_UUID, self._on_notify)
-        _LOGGER.debug("Subscribed to EE02, sending initial query")
-        await self._send_command([(26, 1)])
+        # Concurrent or repeated connects each subscribe a handler on the same
+        # link, so every notification chunk is fed to the reassembler N times.
+        async with self._connect_lock:
+            if self._is_connected:
+                _LOGGER.debug("Already connected to %s, skipping connect", self.name)
+                return
+            await self._drop_client()
+            self._closing = False
+            _LOGGER.debug("Connecting to %s (%s)", self.name, self.address)
+            self._reassembler = PacketReassembler()
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                self._ble_device,
+                self.name,
+                disconnected_callback=self._on_disconnected,
+            )
+            self._is_connected = True
+            await self._client.start_notify(NOTIFY_UUID, self._on_notify)
+            _LOGGER.debug("Subscribed to EE02, sending initial query")
+            await self._send_command([(26, 1)])
 
     async def disconnect(self) -> None:
+        self._closing = True
         self._is_connected = False
-        if self._client:
+        await self._drop_client()
+
+    async def _drop_client(self) -> None:
+        client, self._client = self._client, None
+        if client:
             try:
-                await self._client.disconnect()
+                await client.disconnect()
             except Exception:
                 pass
-            self._client = None
 
     def on_disconnect(self, callback: Callable) -> Callable:
         self._disconnect_callbacks.append(callback)
@@ -213,8 +228,11 @@ class GendomeDevice:
         return cancel
 
     def _on_disconnected(self, _client: BleakClient) -> None:
-        _LOGGER.warning("Disconnected from %s", self.name)
         self._is_connected = False
+        if self._closing:
+            _LOGGER.debug("Disconnected from %s (requested)", self.name)
+            return
+        _LOGGER.warning("Disconnected from %s", self.name)
         for cb in list(self._disconnect_callbacks):
             cb(None)
 
