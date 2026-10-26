@@ -70,10 +70,13 @@ class PacketReassembler:
         self._expected_crc: int | None = None
 
     def feed(self, data: bytes) -> dict | None:
+        _LOGGER.debug("RX raw %s", data.hex())
         if len(data) < 3:
             return None
         seq = data[2]
         if seq == 1:
+            if self._chunks:
+                _LOGGER.debug("Discarding incomplete frame (%d chunks): new SEQ=1 arrived", len(self._chunks))
             self._chunks = []
             if len(data) < 7:
                 return None
@@ -85,6 +88,7 @@ class PacketReassembler:
                 return self._finish()
         else:
             if not self._chunks:
+                _LOGGER.debug("Dropped orphan chunk seq=%d (no SEQ=1 start)", seq)
                 return None
             chunk = data[3:]
             self._chunks.append(chunk)
